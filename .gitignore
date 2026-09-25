@@ -1,0 +1,23 @@
+# secrets — NEVER commit
+.env
+
+# python
+venv/
+__pycache__/
+*.pyc
+
+# runtime data (db, uploaded images, extraction cache)
+data/
+.cache/
+
+# node
+node_modules/
+frontend/dist/
+
+# local scratch files
+v2_*.txt
+verify_out*.txt
+verify*.py
+inspect_result.txt
+po.json
+*.log

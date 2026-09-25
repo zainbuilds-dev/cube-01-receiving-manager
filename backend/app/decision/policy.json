@@ -1,0 +1,11 @@
+{
+  "policy_version": "1.0.0",
+  "critical_checks": ["sku_identity", "quantity", "variant", "carton_damage"],
+  "advisory_checks": [],
+  "decision_rules": [
+    "any critical FAIL -> decision FAIL, disposition EXCEPTION",
+    "else any critical UNCERTAIN -> decision UNCERTAIN, disposition HOLD_FOR_REVIEW",
+    "else -> decision PASS, disposition ACCEPT"
+  ],
+  "not_applicable_rule": "NOT_APPLICABLE checks are excluded from decision aggregation; the check was out of scope for this PO and states its reason."
+}

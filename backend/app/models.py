@@ -1,0 +1,77 @@
+from datetime import datetime, timezone
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+def utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+# ---------- purchase order ----------
+
+class POLineItem(BaseModel):
+    sku: str
+    product_name: Optional[str] = None
+    expected_qty: int
+    variant: Optional[str] = None
+    expected_cartons: Optional[int] = None
+    units_per_carton: Optional[int] = None
+    components: Optional[List[str]] = None
+
+class POCreate(BaseModel):
+    po_number: str
+    supplier: Optional[str] = None
+    line_items: List[POLineItem]  # MVP: exactly 1 (enforced in API)
+
+# ---------- extraction (per image, blind to the PO) ----------
+
+class DamageObs(BaseModel):
+    damage_type: Literal["crushing", "dent", "tear_or_open", "water", "other"]
+    location: str
+    severity: Literal["minor", "major"]
+    confidence: float = Field(ge=0, le=1)
+
+class ImageObservation(BaseModel):
+    visible_sku_text: Optional[str] = None
+    visible_product_text: Optional[str] = None
+    printed_quantity: Optional[int] = None
+    visible_unit_count: Optional[int] = None
+    count_confidence: Optional[float] = Field(default=None, ge=0, le=1)
+    full_contents_visible: bool = False
+    cartons_visible: int = 0
+    dominant_product_color: Optional[str] = None
+    color_reliability: Literal["good", "poor"] = "good"
+    label_variant_text: Optional[str] = None
+    damages: List[DamageObs] = []
+    quality_issues: List[str] = []
+    notes: Optional[str] = None
+
+class ObsProvenance(BaseModel):
+    image_id: str
+    sha256: str
+    observation: ImageObservation
+    latency_ms: int = 0
+    tokens: int = 0
+
+# ---------- checks ----------
+
+class EvidenceItem(BaseModel):
+    type: str
+    image_id: Optional[str] = None
+    quote: Optional[str] = None
+    description: str
+    strength: float = Field(ge=0, le=1)
+
+class CheckResult(BaseModel):
+    check_key: str
+    verdict: Literal["PASS", "FAIL", "UNCERTAIN", "NOT_APPLICABLE"]
+    confidence: float
+    detail: str
+    evidence: List[EvidenceItem] = []
+    model_version: str
+    latency_ms: int = 0
+    uncertainty_reason: Optional[str] = None
+
+class CheckContext(BaseModel):
+    po: POLineItem
+    observations: List[ObsProvenance]
+    model_version: str
