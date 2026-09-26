@@ -8,8 +8,8 @@ from ..config import CFG
 from ..models import ImageObservation, ObsProvenance
 from .base import VisionProvider, VisionRequest
 
-PROMPT_FILE = "observe_carton.v1.txt"
-PROMPT_VERSION = "observe_carton@v1"
+PROMPT_FILE = "observe_carton.v2.txt"
+PROMPT_VERSION = "observe_carton@v2"
 
 def load_prompt() -> str:
     return (CFG.prompts_dir / PROMPT_FILE).read_text(encoding="utf-8")

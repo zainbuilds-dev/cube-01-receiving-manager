@@ -10,7 +10,7 @@ from ..config import CFG
 from .base import VisionProvider, VisionRequest, VisionResponse
 
 RETRYABLE_STATUS = ("429", "RESOURCE_EXHAUSTED", "500", "503", "UNAVAILABLE", "OVERLOADED")
-BACKOFF_S = (2, 5, 10)
+BACKOFF_S = (2, 5)
 
 class GeminiProvider(VisionProvider):
     name = "gemini"

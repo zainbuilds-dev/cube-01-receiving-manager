@@ -6,26 +6,32 @@ from pydantic import BaseModel, Field
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-# ---------- purchase order ----------
+# ---------- purchase order (aligned to reference contract) ----------
 
 class POLineItem(BaseModel):
     sku: str
-    product_name: Optional[str] = None
-    expected_qty: int
-    variant: Optional[str] = None
-    expected_cartons: Optional[int] = None
-    units_per_carton: Optional[int] = None
-    components: Optional[List[str]] = None
+    asin: Optional[str] = None
+    product_title: Optional[str] = None
+    spec_colour: Optional[str] = None        # None or "n/a" -> colour check NOT_APPLICABLE
+    spec_variant: Optional[str] = None       # non-colour variant (e.g. "750ml", "6ft")
+    spec_components: Optional[List[str]] = None
+    cartons_ordered: Optional[int] = None
+    units_per_carton_ordered: Optional[int] = None
+    qty_ordered: int
 
 class POCreate(BaseModel):
+    unit_id: str                  # cross-stage join key (Round 3)
     po_number: str
+    po_line: int = 1
     supplier: Optional[str] = None
+    operator_id: Optional[str] = None
     line_items: List[POLineItem]  # MVP: exactly 1 (enforced in API)
 
 # ---------- extraction (per image, blind to the PO) ----------
 
 class DamageObs(BaseModel):
     damage_type: Literal["crushing", "dent", "tear_or_open", "water", "other"]
+    target: Literal["carton", "unit"]
     location: str
     severity: Literal["minor", "major"]
     confidence: float = Field(ge=0, le=1)
@@ -40,7 +46,10 @@ class ImageObservation(BaseModel):
     cartons_visible: int = 0
     dominant_product_color: Optional[str] = None
     color_reliability: Literal["good", "poor"] = "good"
+    label_colour_text: Optional[str] = None
     label_variant_text: Optional[str] = None
+    visible_components: Optional[List[str]] = None
+    contents_open_for_inspection: bool = False
     damages: List[DamageObs] = []
     quality_issues: List[str] = []
     notes: Optional[str] = None
@@ -70,6 +79,7 @@ class CheckResult(BaseModel):
     model_version: str
     latency_ms: int = 0
     uncertainty_reason: Optional[str] = None
+    summary_value: Optional[str] = None   # contract vocabulary for receiving_summary
 
 class CheckContext(BaseModel):
     po: POLineItem

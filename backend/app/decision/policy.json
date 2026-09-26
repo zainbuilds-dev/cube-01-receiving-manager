@@ -1,6 +1,7 @@
 {
-  "policy_version": "1.0.0",
-  "critical_checks": ["sku_identity", "quantity", "variant", "carton_damage"],
+  "policy_version": "1.1.0",
+  "critical_checks": ["sku_identity", "colour", "variant", "quantity",
+                      "carton_count", "carton_damage", "unit_damage"],
   "advisory_checks": [],
   "decision_rules": [
     "any critical FAIL -> decision FAIL, disposition EXCEPTION",
