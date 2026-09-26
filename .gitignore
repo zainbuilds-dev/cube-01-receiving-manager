@@ -1,7 +1,10 @@
-# secrets — NEVER commit
+# secrets - NEVER commit
 .env
+.env.*
+!.env.example
 
 # python
+.venv/
 venv/
 __pycache__/
 *.pyc
@@ -21,3 +24,6 @@ verify*.py
 inspect_result.txt
 po.json
 *.log
+
+# operating system files
+.DS_Store
