@@ -14,6 +14,9 @@ from .extraction.gemini import GeminiProvider
 from .extraction.service import PROMPT_VERSION, ExtractionService
 from .models import POCreate, CheckContext, utcnow
 from .storage import store_image
+import re
+
+from fastapi.responses import FileResponse
 
 app = FastAPI(title="Receiving Manager", version=CFG.agent_version)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
@@ -124,6 +127,21 @@ def inspect(rid: str):
     db.run("UPDATE records SET status=?, decision=?, evidence_json=? WHERE id=?",
            ("INSPECTED", outcome["decision"], json.dumps(rec), rid))
     return rec
+    SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+MEDIA = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+@app.get("/api/images/{sha}")
+def get_image(sha: str):
+    if not SHA_RE.match(sha):          # path-traversal impossible: hex-only
+        raise HTTPException(400, "invalid hash")
+    row = db.run("SELECT ext FROM images WHERE sha256=?", (sha,), fetch=True)
+    if not row:
+        raise HTTPException(404, "image not found")
+    ext = row[0][0]
+    path = CFG.image_dir / f"{sha}.{ext}"
+    if not path.exists():
+        raise HTTPException(404, "image file missing")
+    return FileResponse(path, media_type=MEDIA[ext])
 
 def _get_record(rid: str):
     rows = db.run("SELECT id, po_json, status, decision, evidence_json, created_at "
