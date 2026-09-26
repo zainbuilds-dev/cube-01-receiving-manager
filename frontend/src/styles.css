@@ -51,3 +51,5 @@ button.cta:disabled { opacity: .6; cursor: default; }
 .error { background: #fee2e2; color: var(--red); padding: 10px 14px; border-radius: 8px; margin-top: 12px; font-size: 14px; }
 .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--line); }
 .row:last-child { border-bottom: none; }
+.orgswitch { display: flex; gap: 6px; margin-right: 10px; }
+.orgswitch button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
