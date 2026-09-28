@@ -7,6 +7,7 @@ from PIL import Image, ImageOps
 from ..config import CFG
 from ..models import ImageObservation, ObsProvenance
 from .base import VisionProvider, VisionRequest
+from .barcode import decode_barcodes
 
 PROMPT_FILE = "observe_carton.v2.txt"
 PROMPT_VERSION = "observe_carton@v2"
@@ -24,9 +25,8 @@ def process_image(raw: bytes) -> bytes:
     return out.getvalue()
 
 class ExtractionService:
-    """Content-hash cache ABOVE the provider: same image + prompt + model
-    never re-bills free-tier quota. Also makes re-running inspections after
-    code changes free."""
+    """Content-hash cache ABOVE the provider (VLM calls only). Barcode
+    decoding is local and deterministic — it runs on every call, cache or not."""
 
     def __init__(self, provider: VisionProvider):
         self.provider = provider
@@ -34,6 +34,8 @@ class ExtractionService:
 
     def observe(self, original_sha: str, image_id: str, raw: bytes):
         processed = process_image(raw)
+        barcodes = decode_barcodes(processed)
+
         key = hashlib.sha256(
             f"{self.provider.name}|{CFG.gemini_model}|{PROMPT_VERSION}|"
             f"{hashlib.sha256(processed).hexdigest()}".encode()
@@ -44,7 +46,8 @@ class ExtractionService:
             d = json.loads(cache_file.read_text())
             return (ObsProvenance(image_id=image_id, sha256=original_sha,
                                   observation=ImageObservation(**d["parsed"]),
-                                  latency_ms=0, tokens=d["tokens"]),
+                                  latency_ms=0, tokens=d["tokens"],
+                                  barcodes=barcodes),
                     d["model_id"])
 
         resp = self.provider.analyze(VisionRequest(
@@ -55,5 +58,6 @@ class ExtractionService:
             "model_id": resp.model_id, "tokens": resp.tokens}))
         return (ObsProvenance(image_id=image_id, sha256=original_sha,
                               observation=resp.parsed,
-                              latency_ms=resp.latency_ms, tokens=resp.tokens),
+                              latency_ms=resp.latency_ms, tokens=resp.tokens,
+                              barcodes=barcodes),
                 resp.model_id)

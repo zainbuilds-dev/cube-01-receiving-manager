@@ -40,8 +40,16 @@ def build_receiving_summary(checks: List[CheckResult], po: POLineItem) -> dict:
         "qty_received": sv("quantity"),
         "quality_flags": flags,
     }
-    if "units_per_carton" not in by:
-        summary["note"] = ("units_per_carton_counted is 'uncertain' until the "
-                           "units-per-carton check ships; printed and derived "
-                           "counts land there.")
+
+    # Authoritative formula from the reference contract:
+    # qty_received = cartons_received x units_per_carton_counted.
+    # Used when the direct visual count is unavailable but both factors are known.
+    if summary["qty_received"] == "uncertain":
+        try:
+            c = int(summary["cartons_received"])
+            u = int(summary["units_per_carton_counted"])
+            summary["qty_received"] = str(c * u)
+            summary["qty_received_source"] = "derived (cartons x units_per_carton)"
+        except (TypeError, ValueError):
+            pass
     return summary

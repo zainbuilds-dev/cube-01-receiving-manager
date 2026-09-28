@@ -58,6 +58,7 @@ class ObsProvenance(BaseModel):
     image_id: str
     sha256: str
     observation: ImageObservation
+    barcodes: List[str] = []      # decoded locally by pyzbar (deterministic tier)
     latency_ms: int = 0
     tokens: int = 0
 

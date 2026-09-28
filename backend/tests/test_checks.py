@@ -1,5 +1,8 @@
-from app.checks import carton_count, carton_damage, colour, quantity, sku, unit_damage, variant
-from app.models import (CheckContext, DamageObs, ImageObservation, ObsProvenance, POLineItem)
+from app.checks import (carton_count, carton_damage, colour, missing_components,
+                        other_quality, quantity, sku, unit_damage, units_per_carton,
+                        variant)
+from app.models import (CheckContext, DamageObs, ImageObservation, ObsProvenance,
+                        POLineItem)
 
 def obs(**kw):
     base = dict(visible_sku_text=None, visible_product_text=None, printed_quantity=None,
@@ -12,18 +15,27 @@ def obs(**kw):
 
 def ctx(obs_list, **po_kw):
     kw = dict(sku="SKU-BOTTLE-750", qty_ordered=24, spec_colour="black",
-              spec_variant="750ml", cartons_ordered=2, units_per_carton_ordered=12)
+              spec_variant="750ml", spec_components=["bottle", "lid"],
+              cartons_ordered=2, units_per_carton_ordered=12)
     kw.update(po_kw)
     po = POLineItem(**kw)
     provs = [ObsProvenance(image_id=f"img_{i+1}", sha256=f"sha{i}", observation=o)
              for i, o in enumerate(obs_list)]
     return CheckContext(po=po, observations=provs, model_version="gemini:test|prompt:v2")
 
+def ctx_barcodes(codes, **po_kw):
+    kw = dict(sku="SKU-BOTTLE-750", qty_ordered=24)
+    kw.update(po_kw)
+    po = POLineItem(**kw)
+    provs = [ObsProvenance(image_id="img_1", sha256="sha0", observation=obs(),
+                           barcodes=codes)]
+    return CheckContext(po=po, observations=provs, model_version="gemini:test|prompt:v2")
+
 def dmg(target="carton", dtype="crushing", conf=0.9):
     return DamageObs(damage_type=dtype, target=target, location="upper corner",
                      severity="major", confidence=conf)
 
-# ---- SKU ----
+# ---- SKU (label tier) ----
 def test_sku_pass():
     assert sku.run(ctx([obs(visible_sku_text="SKU-BOTTLE-750")])).verdict == "PASS"
 
@@ -33,6 +45,21 @@ def test_sku_fail():
 def test_sku_uncertain():
     r = sku.run(ctx([obs(), obs()]))
     assert r.verdict == "UNCERTAIN" and r.uncertainty_reason == "INSUFFICIENT_EVIDENCE"
+
+# ---- SKU (barcode tier, deterministic) ----
+def test_sku_barcode_pass():
+    r = sku.run(ctx_barcodes(["SKU-BOTTLE-750"]))
+    assert r.verdict == "PASS" and r.confidence == 0.95
+    assert r.evidence[0].type == "barcode"
+
+def test_sku_barcode_wrong_sku_fail():
+    r = sku.run(ctx_barcodes(["SKU-LEASH-6FT"]))
+    assert r.verdict == "FAIL" and r.confidence == 0.9
+
+def test_sku_barcode_upc_ignored():
+    # A numeric UPC that doesn't match is NOT evidence of a wrong SKU.
+    r = sku.run(ctx_barcodes(["0123456789012"]))
+    assert r.verdict == "UNCERTAIN"
 
 # ---- colour ----
 def test_colour_label_pass():
@@ -143,10 +170,73 @@ def test_unit_damage_fail():
     assert r.verdict == "FAIL" and r.summary_value == "dent"
 
 def test_unit_damage_not_visible_uncertain():
-    r = unit_damage.run(ctx([obs()]))   # no units, no colour
+    r = unit_damage.run(ctx([obs()]))
     assert r.verdict == "UNCERTAIN" and r.uncertainty_reason == "INSUFFICIENT_EVIDENCE"
     assert r.summary_value == "uncertain"
 
 def test_unit_damage_visible_pass():
     r = unit_damage.run(ctx([obs(visible_unit_count=6)]))
+    assert r.verdict == "PASS" and r.summary_value == "none"
+
+# ---- units per carton ----
+def test_upc_pass_single_carton():
+    r = units_per_carton.run(ctx([obs(cartons_visible=1, visible_unit_count=12,
+                                      count_confidence=0.9, full_contents_visible=True)]))
+    assert r.verdict == "PASS" and r.summary_value == "12"
+
+def test_upc_fail_single_carton():
+    r = units_per_carton.run(ctx([obs(cartons_visible=1, visible_unit_count=10,
+                                      count_confidence=0.9, full_contents_visible=True)]))
+    assert r.verdict == "FAIL" and r.summary_value == "10"
+
+def test_upc_derived_pass():
+    r = units_per_carton.run(ctx([obs(cartons_visible=2, visible_unit_count=24,
+                                      count_confidence=0.9, full_contents_visible=True)]))
+    assert r.verdict == "PASS" and r.summary_value == "12" and r.confidence == 0.55
+
+def test_upc_derived_mismatch_uncertain():
+    r = units_per_carton.run(ctx([obs(cartons_visible=2, visible_unit_count=22,
+                                      count_confidence=0.9, full_contents_visible=True)]))
+    assert r.verdict == "UNCERTAIN" and r.uncertainty_reason == "CONFLICTING_EVIDENCE"
+
+def test_upc_not_visible_uncertain():
+    r = units_per_carton.run(ctx([obs()]))
+    assert r.verdict == "UNCERTAIN" and r.uncertainty_reason == "INSUFFICIENT_EVIDENCE"
+
+def test_upc_not_applicable():
+    assert units_per_carton.run(ctx([obs()], units_per_carton_ordered=None)).verdict == "NOT_APPLICABLE"
+
+# ---- missing components ----
+def test_mc_not_applicable():
+    assert missing_components.run(ctx([obs()], spec_components=None)).verdict == "NOT_APPLICABLE"
+
+def test_mc_sealed_uncertain():
+    r = missing_components.run(ctx([obs()]))   # not opened
+    assert r.verdict == "UNCERTAIN" and r.uncertainty_reason == "INSUFFICIENT_EVIDENCE"
+    assert "Not visible is not missing" in r.detail
+
+def test_mc_open_all_present_pass():
+    r = missing_components.run(ctx([obs(contents_open_for_inspection=True,
+                                        visible_components=["bottle", "lid"])]))
+    assert r.verdict == "PASS"
+
+def test_mc_open_missing_fail():
+    r = missing_components.run(ctx([obs(contents_open_for_inspection=True,
+                                        full_contents_visible=True,
+                                        visible_components=["bottle"])]))
+    assert r.verdict == "FAIL" and "lid" in r.detail
+
+def test_mc_partial_visibility_uncertain():
+    r = missing_components.run(ctx([obs(contents_open_for_inspection=True,
+                                        full_contents_visible=False,
+                                        visible_components=["bottle"])]))
+    assert r.verdict == "UNCERTAIN" and r.uncertainty_reason == "OCCLUSION"
+
+# ---- other quality ----
+def test_oq_other_damage_fail():
+    r = other_quality.run(ctx([obs(damages=[dmg(target="unit", dtype="other")])]))
+    assert r.verdict == "FAIL" and r.summary_value == "obvious_defect"
+
+def test_oq_pass():
+    r = other_quality.run(ctx([obs(), obs()]))
     assert r.verdict == "PASS" and r.summary_value == "none"

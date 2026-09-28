@@ -1,12 +1,14 @@
 {
-  "policy_version": "1.1.0",
+  "policy_version": "1.2.0",
   "critical_checks": ["sku_identity", "colour", "variant", "quantity",
-                      "carton_count", "carton_damage", "unit_damage"],
-  "advisory_checks": [],
+                      "carton_count", "carton_damage", "unit_damage",
+                      "units_per_carton", "missing_components"],
+  "advisory_checks": ["other_quality"],
   "decision_rules": [
     "any critical FAIL -> decision FAIL, disposition EXCEPTION",
     "else any critical UNCERTAIN -> decision UNCERTAIN, disposition HOLD_FOR_REVIEW",
     "else -> decision PASS, disposition ACCEPT"
   ],
-  "not_applicable_rule": "NOT_APPLICABLE checks are excluded from decision aggregation; the check was out of scope for this PO and states its reason."
+  "not_applicable_rule": "NOT_APPLICABLE checks are excluded from decision aggregation; the check was out of scope for this PO and states its reason.",
+  "advisory_rule": "Advisory check failures are recorded as findings and quality flags but do not block the decision."
 }
