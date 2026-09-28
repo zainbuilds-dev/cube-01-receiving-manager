@@ -45,6 +45,10 @@ export const inspect = (rid: string) =>
   fetch(`/api/records/${rid}/inspect`, { method: 'POST', headers: authHeaders() })
     .then(r => j<EvidenceRecord>(r))
 
+export const overrideRecord = (rid: string, o: { override_by: string; override_reason: string; new_decision: string }) =>
+  fetch(`/api/records/${rid}/override`, { method: 'POST', headers: authHeaders(true), body: JSON.stringify(o) })
+    .then(r => j<EvidenceRecord>(r))
+
 export const listRecords = () =>
   fetch('/api/records', { headers: authHeaders() }).then(r => j<RecordSummary[]>(r))
 
@@ -52,8 +56,6 @@ export async function getRecord(rid: string): Promise<EvidenceRecord | { status:
   return j(await fetch(`/api/records/${rid}`, { headers: authHeaders() }))
 }
 
-// Images require the org token; <img> tags can't send headers, so we fetch
-// authenticated blobs and hand object URLs to the DOM.
 export async function fetchImageUrl(sha: string): Promise<string> {
   const res = await fetch(`/api/images/${sha}`, { headers: authHeaders() })
   if (!res.ok) throw new Error('image unavailable')

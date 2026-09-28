@@ -31,7 +31,10 @@ export interface Outcome {
   decision: string; disposition: string; decided_by: string
   decided_at: string; policy_version: string; reason: string
 }
-export interface ImageEntry { image_id: string; sha256: string; filename: string }
+export interface  ImageEntry {
+  image_id: string; sha256: string; filename: string
+  quality?: { verdict: string; edge_energy: number; brightness: number; reasons: string[] } | null
+}
 export interface ReceivingSummary {
   identity_match: string; carton_damage: string; unit_damage: string
   cartons_received: string; units_per_carton_counted: string

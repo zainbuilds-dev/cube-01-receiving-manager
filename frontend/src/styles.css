@@ -53,3 +53,4 @@ button.cta:disabled { opacity: .6; cursor: default; }
 .row:last-child { border-bottom: none; }
 .orgswitch { display: flex; gap: 6px; margin-right: 10px; }
 .orgswitch button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.muted-btn { background: #94a3b8; }
