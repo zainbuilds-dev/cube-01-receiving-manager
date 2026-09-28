@@ -10,6 +10,9 @@ const CHECK_LABELS: Record<string, string> = {
   carton_count: 'Carton Count',
   carton_damage: 'Carton Condition',
   unit_damage: 'Product Condition',
+    units_per_carton: 'Units per Carton',
+  missing_components: 'Components (spec)',
+  other_quality: 'Other Quality Issues',
 }
 const BADGE: Record<string, string> = {
   PASS: 'pass', FAIL: 'fail', UNCERTAIN: 'uncertain', NOT_APPLICABLE: 'na',
@@ -32,6 +35,9 @@ function expectedFor(key: string, li: POLineItem): string {
     case 'carton_count': return li.cartons_ordered ? `${li.cartons_ordered} carton(s)` : '—'
     case 'carton_damage': return 'undamaged'
     case 'unit_damage': return 'undamaged'
+    case 'units_per_carton': return li.units_per_carton_ordered ? `${li.units_per_carton_ordered} per carton` : '—'
+    case 'missing_components': return li.spec_components ? li.spec_components.join('; ') : '—'
+    case 'other_quality': return 'none'
     default: return '—'
   }
 }

@@ -36,6 +36,7 @@ export interface ReceivingSummary {
   identity_match: string; carton_damage: string; unit_damage: string
   cartons_received: string; units_per_carton_counted: string
   qty_received: string; quality_flags: string[]; note?: string | null
+    qty_received_source?: string | null
 }
 export interface EvidenceRecord {
   record_id: string; schema_version: string; organization_id: string; client_id: string
