@@ -6,6 +6,7 @@ from PIL import Image, ImageOps
 
 from ..config import CFG
 from ..models import ImageObservation, ObsProvenance
+from ..quality import assess_quality
 from .base import VisionProvider, VisionRequest
 from .barcode import decode_barcodes
 
@@ -25,8 +26,9 @@ def process_image(raw: bytes) -> bytes:
     return out.getvalue()
 
 class ExtractionService:
-    """Content-hash cache ABOVE the provider (VLM calls only). Barcode
-    decoding is local and deterministic — it runs on every call, cache or not."""
+    """Quality gate runs BEFORE the provider call: rejected photos never
+    consume VLM quota and never produce claims. The VLM cache sits above
+    the provider; quality is recomputed each call (deterministic, ~ms)."""
 
     def __init__(self, provider: VisionProvider):
         self.provider = provider
@@ -34,7 +36,15 @@ class ExtractionService:
 
     def observe(self, original_sha: str, image_id: str, raw: bytes):
         processed = process_image(raw)
+        quality = assess_quality(processed)
         barcodes = decode_barcodes(processed)
+
+        if quality["verdict"] == "REJECTED":
+            return (ObsProvenance(image_id=image_id, sha256=original_sha,
+                                  observation=ImageObservation(),
+                                  barcodes=barcodes, quality=quality,
+                                  latency_ms=0, tokens=0),
+                    "quality-gate-rejected")
 
         key = hashlib.sha256(
             f"{self.provider.name}|{CFG.gemini_model}|{PROMPT_VERSION}|"
@@ -47,7 +57,7 @@ class ExtractionService:
             return (ObsProvenance(image_id=image_id, sha256=original_sha,
                                   observation=ImageObservation(**d["parsed"]),
                                   latency_ms=0, tokens=d["tokens"],
-                                  barcodes=barcodes),
+                                  barcodes=barcodes, quality=quality),
                     d["model_id"])
 
         resp = self.provider.analyze(VisionRequest(
@@ -59,5 +69,5 @@ class ExtractionService:
         return (ObsProvenance(image_id=image_id, sha256=original_sha,
                               observation=resp.parsed,
                               latency_ms=resp.latency_ms, tokens=resp.tokens,
-                              barcodes=barcodes),
+                              barcodes=barcodes, quality=quality),
                 resp.model_id)

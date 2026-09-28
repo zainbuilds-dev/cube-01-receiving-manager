@@ -58,7 +58,8 @@ class ObsProvenance(BaseModel):
     image_id: str
     sha256: str
     observation: ImageObservation
-    barcodes: List[str] = []      # decoded locally by pyzbar (deterministic tier)
+    barcodes: List[str] = []        # decoded locally by pyzbar (deterministic tier)
+    quality: Optional[dict] = None  # deterministic quality-gate result (quality.py)
     latency_ms: int = 0
     tokens: int = 0
 
@@ -86,3 +87,10 @@ class CheckContext(BaseModel):
     po: POLineItem
     observations: List[ObsProvenance]
     model_version: str
+
+# ---------- human override (Session 6) ----------
+
+class OverrideRequest(BaseModel):
+    override_by: str
+    override_reason: str
+    new_decision: Literal["PASS", "FAIL", "UNCERTAIN"]

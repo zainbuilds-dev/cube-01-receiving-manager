@@ -6,12 +6,33 @@ RELIABLE = 0.7  # min count_confidence for a count to be treated as exact
 def run(ctx: CheckContext) -> CheckResult:
     exp = ctx.po.qty_ordered
 
-    # 1. A reliable full-contents count is the observed quantity.
+    # 1. Reliable full-contents counts are the observed quantity.
     reliable = [p for p in ctx.observations
                 if p.observation.visible_unit_count is not None
                 and p.observation.full_contents_visible
                 and (p.observation.count_confidence or 0.0) >= RELIABLE]
     if reliable:
+        # Conflict detection first: two reliable counts that disagree are a
+        # finding, never silently resolved by max/confidence.
+        distinct = {p.observation.visible_unit_count for p in reliable}
+        if len(distinct) > 1:
+            ev = [EvidenceItem(type="visual_count", image_id=p.image_id,
+                               description=(f"Full contents visible: "
+                                            f"{p.observation.visible_unit_count} units "
+                                            f"counted."),
+                               strength=p.observation.count_confidence or 0.7)
+                  for p in reliable]
+            shown = ", ".join(f"{p.observation.visible_unit_count} ({p.image_id})"
+                              for p in reliable)
+            return CheckResult(check_key="quantity", verdict="UNCERTAIN", confidence=0.4,
+                               detail=(f"Reliable counts disagree across images: {shown}; "
+                                       f"cannot determine observed quantity against "
+                                       f"expected {exp}."),
+                               evidence=ev, model_version=ctx.model_version,
+                               uncertainty_reason="CONFLICTING_EVIDENCE",
+                               summary_value="uncertain",
+                               latency_ms=cited_latency(ctx, [p.image_id for p in reliable]))
+
         best = max(reliable, key=lambda p: p.observation.count_confidence or 0.0)
         n = best.observation.visible_unit_count
         conf = best.observation.count_confidence or 0.7
@@ -81,4 +102,4 @@ def run(ctx: CheckContext) -> CheckResult:
                        evidence=absence("No quantity evidence in any image."),
                        model_version=ctx.model_version, uncertainty_reason="INSUFFICIENT_EVIDENCE",
                        latency_ms=cited_latency(ctx, [p.image_id for p in ctx.observations]),
-                       summary_value="uncertain") 
+                       summary_value="uncertain")
