@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: receiving-manager
+    name: receiving-manager-fullstack
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
