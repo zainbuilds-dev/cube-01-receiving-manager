@@ -1,55 +1,244 @@
-Receiving Manager — CUBE Buildathon (Sydon.AI × CodeQuesters)
-An AI receiving-dock agent that verifies incoming shipments against a purchaseorder using receiving photographs — producing a PASS / FAIL / UNCERTAINdecision with per-check evidence, not a chatbot verdict.
+# Cube Buildathon · 01 · Receiving Manager
 
-Track: Receiving Manager · Round 2 · Solo build
+**Commerce Context stream · Round 2 · Individual Build**
 
-The problem
-At goods-receiving time, an operator has a PO and photos of what physicallyarrived. They must answer: did we receive exactly what was ordered, inacceptable visible condition? — without guessing, and without trusting asingle opaque model judgment.
+> Five agents, one unit, one record that follows it.
+> A physical product arrives, gets prepped, gets shipped, comes back. At every step a person makes a fast judgment that nobody records. **You build the agent that makes one of those judgments, and leaves proof.**
 
-What it does
-Given a PO line (SKU, colour/variant spec, components, carton/quantity specs)and 1–8 receiving photographs, the agent runs 10 discrete checks:
+**New here? Read these first:**
 
-SKU identity (barcode/QR tier → label-text tier), colour, variant, quantity(expected vs observed), carton count, carton damage, product damage, units percarton, missing components, other visible quality issues.
+1. [`GITHUB-GUIDE.md`](GITHUB-GUIDE.md) explains how to fork the repository, set it up, build and push your work.
+2. [`RULES.md`](RULES.md) covers the repository and engineering rules.
 
-Each check returns PASS / FAIL / UNCERTAIN / NOT_APPLICABLE with evidenceitems (image, quote, strength), confidence, model version and latency. Adeterministic, versioned decision policy derives the overall decision —the LLM never decides.
+---
 
-Key design principles
-UNCERTAIN is a first-class outcome with a machine-readable reasontaxonomy (INSUFFICIENT_EVIDENCE, OCCLUSION, CONFLICTING_EVIDENCE,LOW_IMAGE_QUALITY, EXTRACTION_FAILED). "Not visible is not missing";"not visible is not undamaged."
-Extraction is blind to the PO. The VLM only reports observations;all comparisons are deterministic Python. Extraction claims cannot anchortoward the expected answer.
-Fail-open. API errors or rejected photos still save the capture andproduce a record (status PENDING_REVIEW). The operator is never blocked,and nothing is fabricated.
-Evidence records. Every decision ships with a structured JSON record(schema v1.1.0) including a SHA-256 content hash for integrityverification of the record as produced.
-Human override with full audit trail. Original decision, new decision,operator, reason and timestamp are preserved — overrides are data.
-Org tenancy isolation. Two demo orgs; every query is org-scoped andverified by adversarial tests (cross-org record/image access → 404).
+## This implementation
 
-Quickstart
-git clone https://github.com/zainbuilds-dev/cube-01-receiving-manager.gitcd cube-01-receiving-managerpython -m venv venvvenv\Scripts\python.exe -m pip install -r backend\requirements.txt# .env in project root:# GEMINI_API_KEY=<free key from aistudio.google.com/apikey># GEMINI_MODEL=gemini-flash-latest# GEMINI_FALLBACK_MODELS=gemini-3.1-flash-lite# ORG_ALPHA_TOKEN=alpha-demo-token# ORG_BRAVO_TOKEN=bravo-demo-tokenvenv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --port 8000# new terminal:cd frontend && npm install && npm run dev   # http://localhost:5173
-Example workflow
-Open the UI (Alpha org) → New Receiving Record
-Enter the PO (unit_id, SKU, spec colour/variant/components, cartons, qty)
-Upload receiving photos → Run Receiving Inspection
-Result screen: decision banner → receiving summary → expected-vs-observed →
-per-check cards with photo evidence, model version, latency, UNCERTAIN reasons
-Review queue for UNCERTAIN/pending records; override with reason (audited)
-Export the evidence record JSON
-API: GET /docs (FastAPI) after starting the server. All endpoints require
-Authorization: Bearer <org-token>.
+This fork contains an MVP for recording a supplier delivery against one purchase-order line. It accepts receiving images, extracts image observations, runs ten checks, applies a deterministic decision policy, and stores an evidence record that can be reviewed or overridden by an operator.
 
-Documentation
-ARCHITECTURE.md — components, data flow, decision policy, security
-EVALUATION.md — what was measured, what was not, failure modes
-Limitations (honest)
-No blind held-out evaluation on 50 unseen units was completed within the
-build window; see EVALUATION.md for what was measured.
-Single VLM provider (Google Gemini free tier); quality varies by model and load.
-Evidence-record hash verifies integrity of the record as produced — it is not
-a tamper-evident, immutable or anchored ledger.
-Demo-grade static org tokens; no operator authentication (documented).
-Barcode/QR tier is an optional dependency (pyzbar); it degrades gracefully
-when unavailable and the SKU check falls back to label text.
-MVP path is single-SKU records (data model supports multiple line items).
-Deployment: runs locally (4 commands); no cloud deployment was completed.
-Known issues
-Free-tier Gemini occasionally returns 503 under load → the fallback model
-chain retries alternates; total failure fails open to PENDING_REVIEW.
-A QR/barcode that matches the PO overrides contradictory label text
-(documented Tier-1-vs-Tier-2 conflict behavior; see ARCHITECTURE.md).
+The implementation is not production-ready and has not been accuracy-evaluated. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for system details and [`EVALUATION.md`](EVALUATION.md) for the evaluation status and required methodology.
+
+### Local setup
+
+Prerequisites: Python 3.11 or newer, Node.js supported by Vite 8, and a Gemini API key for image inspection.
+
+From the repository root in PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+npm --prefix frontend install
+Copy-Item .env.example .env
+```
+
+Set `GEMINI_API_KEY` in `.env`. The default model is configured in `backend/app/config.py`; optionally set `GEMINI_MODEL` and `GEMINI_FALLBACK_MODELS` there as environment values. Do not commit `.env` or credentials.
+
+Start both the API and frontend from the `frontend` directory:
+
+```powershell
+Set-Location frontend
+npm run dev
+```
+
+The dev command starts the API on port 8000 if it is not already healthy, then starts Vite and prints its URL (normally `http://localhost:5173`). The frontend proxies `/api` and `/health` to the API. Stop the command with Ctrl+C; it stops only the API process it started. Image inspection requires a valid Gemini key; intake and record review can be exercised without claiming model accuracy.
+
+Run checks from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest backend\tests
+npm --prefix frontend run build
+```
+
+### Render deployment
+
+The root `render.yaml` Blueprint deploys the API and built frontend together as one free Docker web service. Connect this GitHub repository to Render and deploy the Blueprint; set `GEMINI_API_KEY` in the service environment to enable image inspection. The free service uses ephemeral storage, so records and uploaded images can be lost when the service restarts or redeploys. The included organization tokens are demo credentials, not production authentication.
+
+### Scope and limitations
+
+- The API currently supports exactly one purchase-order line per record.
+- The database is local SQLite and tenant access is enforced by application-level organization filters, not database row-level security.
+- Usable photos for one receiving record are sent in one indexed Gemini batch; each deterministic check is then evaluated from those observations.
+- Organization tokens are static demo credentials and are not production authentication.
+- Image-quality thresholds are provisional heuristics and need validation on real receiving photos.
+- Missing API credentials or model failures preserve the capture and return `PENDING_REVIEW`/`UNCERTAIN`; image inspection itself requires a valid Gemini key.
+- This fork currently has no held-out labeled image set or measured per-check performance; unit tests are not accuracy results.
+- No public deployment or demo-video URL is provided in this repository.
+- The mandatory LinkedIn post and its URL have not been provided; publish the post, tag CodeQuesters and Sydon.AI, then include its URL in the official form.
+
+These limitations mean the current implementation does not yet satisfy all engineering and submission requirements in [`RULES.md`](RULES.md) and the participant handbook.
+
+### Final submission items
+
+- GitHub fork: this repository.
+- README and architecture: [`README.md`](README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
+- Evaluation report: [`EVALUATION.md`](EVALUATION.md), currently without measured results.
+- Demo video: not yet recorded or linked.
+- Deployment URL: none currently; provide one if the final submission is deployed/applicable.
+- LinkedIn post URL: mandatory, but not available in this repository; include it in the official form after publishing and tagging CodeQuesters and Sydon.AI.
+- Final submission: complete the official form before its deadline; this repository folder is not the submission form.
+
+---
+
+## Your problem statement: Receiving Manager
+
+|                              |                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| **Position in the chain**    | Step 1 of 5. Supplier delivery.                                                     |
+| **Customer**                 | Seller or 3PL taking supplier delivery                                              |
+| **What gets recorded**       | Condition on arrival                                                                |
+| **Who consumes your output** | Prep Manager (next in the chain) and Recovery Manager (supplier and inbound claims) |
+
+A pallet arrives from a manufacturer, often overseas. Someone opens the cartons and decides whether what arrived is what was ordered: right SKU, right count, undamaged, to the quality agreed. Today this is a spot check at best. Shortages and defects surface weeks later when units fail in prep or come back as returns, by which point the supplier conversation is unwinnable because nothing was recorded on arrival.
+
+**What the agent returns, from photographs at the point of receipt:**
+
+* Identity of the goods against the purchase order line
+* Quantity received against quantity ordered, including carton count and units per carton
+* Damage visible on cartons and units: crushing, water, tears
+* Quality flags against the agreed spec: wrong colour, wrong variant, missing components, obvious defects
+
+> This is where supplier disputes originate, and the only point at which a claim against the supplier is still possible. Every downstream problem in this chain is cheaper if it was caught here.
+
+### The chain you are part of
+
+```text
+ Supplier delivery      Inbound to Amazon     Outbound to buyer     Customer return        Money back
+ ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+ │ 01 Receiving │ ───▶ │ 02 Prep      │ ───▶ │ 03 Pack      │ ───▶ │ 04 Returns   │      │ 05 Recovery  │
+ │ condition on │      │ compliance   │      │ contents at  │      │ condition &  │      │ reads all    │
+ │ arrival      │      │ proof        │      │ seal         │      │ disposition  │      │ four → claim │
+ └──────┬───────┘      └──────┬───────┘      └──────┬───────┘      └──────┬───────┘      └──────▲───────┘
+        └─────────────────────┴─────────────────────┴─────────────────────┴─────────────────────┘
+```
+
+The first four are the same machine: a camera, a model, and a decision bound to a record. What changes is the ruleset, the buyer and the moment. The fifth has no camera. It turns the other four's records into a claim.
+
+Your output has to be usable by another pod. That's deliberate, and it's scored.
+
+---
+
+## Reference and evaluation data
+
+The original track repository's synthetic sample CSV is not included in this fork. It is not an evaluation set, and no labeled receiving-image fixtures are currently checked in. Do not infer real marketplace requirements or model performance from synthetic examples. See [`EVALUATION.md`](EVALUATION.md) for the missing evaluation work.
+
+---
+
+## How this works
+
+You have a defined problem statement, supporting domain information and an engineering repository to build from. Understand the customer and operational workflow before writing code, then build and measure whether the solution works.
+
+Your goal is to turn the Receiving Manager problem into a working, measurable agent.
+
+### What you're given
+
+* This problem statement
+* A domain brief covering the real economics, fee structures and what a working day in a warehouse looks like *(shared by the organisers)*
+* The engineering rules in [`RULES.md`](RULES.md)
+* Official repository documentation and supporting resources
+
+### What you produce
+
+Build your solution in **your own GitHub fork**.
+
+Your final Round 2 submission should include:
+
+* A working Receiving Manager
+* A `README.md` explaining your solution, setup, assumptions and limitations
+* An `ARCHITECTURE.md`
+* An eval report/results with numbers and named failure modes
+* A working demo/video
+* A deployment URL, where applicable
+* Your mandatory LinkedIn post URL
+
+## Build and submission flow
+
+```text
+Understand
+    ↓
+Build
+    ↓
+Test
+    ↓
+Evaluate
+    ↓
+Document
+    ↓
+Demo / Deploy
+    ↓
+Submit
+```
+
+Round 2 is an **individual build**.
+
+The official build phase begins on **25 September 2026 at 9:00 AM IST**.
+
+Submissions open from **27 September 2026**.
+
+The final submission deadline is **1 October 2026 at 6:00 PM IST**.
+
+The submission form closes permanently at the deadline. **There is no resubmission.**
+
+All code commits forming your Round 2 submission must be made during the authorised build phase. Do not continue making Round 2 code changes after the build phase ends.
+
+## What we're being straight with you about
+
+* **The core assumption is untested.** Nobody knows yet whether vision models can identify products and grade condition on long-tail catalogues without per-SKU training. Finding out that it doesn't hold, and documenting that clearly, counts as a successful outcome.
+* **Nobody has spoken to a customer yet.** If you can get a real prep center or seller on a call, ask them to rank the five problems by urgency. Don't ask whether they'd buy what you're building.
+* **The background documents disagree in places.** A contradiction is a finding. Raise it as an Issue labelled `finding`.
+
+---
+
+## Evaluation
+
+Your Round 2 submission is evaluated out of **100 points**:
+
+| Criterion                                    |  Points |
+| -------------------------------------------- | ------: |
+| Problem Understanding & Solution Relevance   |  **15** |
+| Agent Functionality & Decision Quality       |  **25** |
+| Evaluation, Accuracy & Uncertainty Handling  |  **25** |
+| Evidence, Traceability & Engineering Quality |  **20** |
+| UX, Demo & Documentation                     |  **15** |
+| **TOTAL**                                    | **100** |
+
+For the vision-based portions of the Receiving Manager, use an appropriate unseen/held-out evaluation set and report your methodology, results, false positives, false negatives, `UNCERTAIN` cases and failure modes.
+
+---
+
+## Evidence and decision traceability
+
+Your Receiving Manager should leave evidence behind for its decisions.
+
+At minimum, the workflow should make it possible to understand:
+
+```text
+What was received?
+        ↓
+What was expected?
+        ↓
+What checks were performed?
+        ↓
+What did the agent find?
+        ↓
+What verdict was produced?
+        ↓
+Why?
+```
+
+Use the official evidence contract provided by the organisers as the baseline for interoperability with the other Managers.
+
+---
+
+## PASS · FAIL · UNCERTAIN
+
+For individual checks:
+
+* **PASS** — the evidence supports the condition.
+* **FAIL** — the evidence shows the condition is not met.
+* **UNCERTAIN** — the evidence is insufficient for a reliable judgment.
+
+`UNCERTAIN` is not simply a low-confidence PASS.
+
+---
+
+*CUBE Buildathon · Commerce Context*

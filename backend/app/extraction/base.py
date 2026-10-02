@@ -6,14 +6,14 @@ from ..models import ImageObservation
 
 @dataclass
 class VisionRequest:
-    image_bytes: bytes      # processed JPEG for the VLM
+    image_bytes: list[bytes] # processed JPEGs for one receiving unit
     prompt_text: str
     prompt_version: str
     schema_model: Any       # pydantic class the response MUST validate against
 
 @dataclass
 class VisionResponse:
-    parsed: ImageObservation
+    parsed: Any
     raw_text: str
     model_id: str
     prompt_version: str

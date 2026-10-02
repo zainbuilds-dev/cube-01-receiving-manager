@@ -1,105 +1,41 @@
-
-# Architecture — Receiving Manager
+# Architecture
 
 ## Overview
-INPUT → VALIDATION → QUALITY GATE → EXTRACTION (blind VLM + local barcode)
-→ CHECKS (deterministic) → DECISION (deterministic policy) → EVIDENCE RECORD
-→ UI / EXPORT. The AI never decides anything: models produce *claims with
-provenance*; deterministic code evaluates checks; a versioned policy decides.
+
+The application is a local-first MVP with a React/Vite operator interface and a FastAPI backend. A receiving record is created from one purchase-order line and one or more carton/product images. The backend creates per-check results, applies a deterministic policy, and stores the result with its supporting evidence.
+
+## Request and decision flow
+
+1. The frontend submits purchase-order details to `POST /api/records` with a bearer token identifying one of the demo organizations.
+2. Images are uploaded to `POST /api/records/{id}/images`. The backend validates supported image content and size, calculates SHA-256, and stores files locally. Organization-scoped database rows link images to records.
+3. `POST /api/records/{id}/inspect` loads the images. Image quality is assessed deterministically, barcodes are decoded locally when available, and usable images are sent to the configured Gemini model. Extraction receives the image and observation prompt, not the purchase-order expectation.
+4. All usable, uncached images for the receiving record are sent together in one indexed Gemini request, with configured model retries/fallbacks. The response must contain exactly one observation per input image index. Image errors are retained in the record. If no usable observations are available, all checks return `UNCERTAIN` and the record is held for review.
+5. Ten check modules evaluate identity, colour, variant, quantity, carton count, carton damage, unit damage, units per carton, missing components, and other quality. The decision engine is deterministic: configured critical failures produce `FAIL`, unresolved critical checks produce `UNCERTAIN`, and all critical checks passing produces `PASS`.
+6. The evidence builder stores the subject, image metadata, checks, receiving summary, outcome, inspection status, overrides, and a content hash. The frontend displays records, check evidence, quality information, and supports human overrides.
 
 ## Components
-- **Frontend** — React/TS/Vite, three screens: record intake (PO + photos),
-  record list with review-queue filter, results view (decision banner,
-  receiving summary, per-check evidence, override panel, JSON export).
-  Org switcher (Alpha/Bravo) attaches bearer tokens.
-- **Backend** — FastAPI + SQLite (WAL). All endpoints org-scoped via
-  `require_org`.
-- **Quality gate** (`app/quality.py`) — deterministic, PIL-only: edge energy
-  (sharpness proxy), brightness, resolution → ACCEPTABLE / DEGRADED / REJECTED.
-  Runs BEFORE the VLM call: rejected photos never consume quota and never
-  produce claims.
-- **Extraction** (`app/extraction/`) — provider abstraction (`base.py`); Gemini
-  provider with a model fallback chain (primary → configured fallbacks) for
-  429/503 resilience; content-hash response cache above the provider;
-  pyzbar barcode/QR decoding (optional, degrades gracefully). Prompt v2 is
-  versioned (`observe_carton@v2`) and the VLM is blind to the PO.
-- **Checks** (`app/checks/`) — 10 pure functions over (PO line, observations,
-  policy): no LLM calls inside checks. Evidence-strength hierarchy for
-  identity: Tier 1 barcode (0.95) > Tier 2 label text (0.9) > visual only
-  (never sufficient for identity PASS).
-- **Decision engine** (`app/decision/`) — pure function + versioned
-  `policy.json` (v1.2.0): any critical FAIL → FAIL/EXCEPTION; else any
-  critical UNCERTAIN → UNCERTAIN/HOLD_FOR_REVIEW; else PASS/ACCEPT.
-  NOT_APPLICABLE checks are excluded from aggregation (out of scope for this
-  PO). `other_quality` is advisory (recorded as a quality flag, does not
-  block).
-- **Evidence records** (`app/evidence.py`) — schema v1.1.0 with images (+
-  quality results), checks (verdict/confidence/evidence/model_version/
-  latency/uncertainty_reason), `receiving_summary` (stage contract vocabulary:
-  identity_match, carton_damage, unit_damage, cartons_received,
-  units_per_carton_counted, qty_received, quality_flags), outcome, overrides,
-  and a SHA-256 content hash over the canonical record. The hash supports
-  integrity verification of the record as produced — not a tamper-evident or
-  anchored ledger.
-- **Human override** — `POST /api/records/{id}/override`: appends
-  {override_by, override_reason, original_decision, new_decision, timestamp}
-  to the record; the machine decision is preserved inside the entry.
-  Cross-org override attempts → 404.
 
-## Data flow (one inspection)
-1. POST /api/records (PO validated by Pydantic; RCV-XXXX per-org sequence)
-2. POST images (magic-byte validation, size cap, content-addressed storage,
-   per-org dedupe)
-3. POST inspect: per image → quality gate → (if not rejected) cached-or-live
-   VLM observation + local barcode decode → claims with provenance
-4. Checks evaluate over the aggregate; conflicting reliable counts →
-   UNCERTAIN/CONFLICTING_EVIDENCE (never silently resolved)
-5. Policy decides; summary maps checks to the stage contract
-   (qty_received = cartons × units_per_carton when factors are known)
-6. Evidence record hashed and stored; if extraction failed for all images or
-   all photos were rejected → fail open: PENDING_REVIEW, all checks
-   UNCERTAIN with reason; the capture is never lost and the operator is
-   never blocked.
-
-## AI model routing
-| Task | Method | Why |
+| Component | Location | Responsibility |
 |---|---|---|
-| Barcode/QR → SKU | pyzbar (local, deterministic) | Machine-readable codes are read, not guessed |
-| SKU/variant/colour label text | VLM reads; deterministic string match vs PO | Only the *reading* needs AI; comparison must not |
-| Visual colour | VLM observation + lighting reliability self-report; label text outranks visual | Colour under bad lighting is unreliable |
-| Counting | VLM structured count + visibility self-assessment; overage provable from partial view, shortage is not | VLM counting is the weakest link — we encode its failure modes |
-| Damage | VLM per-image reports (type/target/location/severity/confidence) | Presence is provable from one image; absence requires visibility |
-| Components | Only assessed when packaging is open AND contents visible | "Not visible is not missing" |
+| HTTP API and workflow | `backend/app/main.py` | Intake, uploads, inspection, records, exports, images, and overrides |
+| Authentication | `backend/app/auth.py` | Resolves static demo bearer tokens to organizations |
+| Persistence | `backend/app/db.py`, `backend/app/storage.py` | SQLite metadata and local content-addressed image storage |
+| Extraction | `backend/app/extraction/` | Prompt construction, local barcode tier, Gemini provider, retries, and cache |
+| Image quality | `backend/app/quality.py` | Deterministic quality gate; thresholds remain provisional |
+| Checks | `backend/app/checks/` | Ten independent check results with evidence and uncertainty |
+| Decision policy | `backend/app/decision/` | Pure deterministic aggregation of check results |
+| Evidence and summary | `backend/app/evidence.py`, `backend/app/summary.py` | Structured record, receiving summary, and SHA-256 content hash |
+| Operator UI | `frontend/src/` | Intake, record list, results, evidence, and human review |
 
-Model versions are recorded per check (`model_version`) along with prompt
-version and latency.
+## Data and trust boundaries
 
-## Security
-- Upload validation by magic bytes (not extensions), 10 MB cap, 8-image cap,
-  hex-only image-hash route (path traversal impossible).
-- Tenancy: app-layer forced scoping — every tenant-table query carries org_id;
-  enforced via a repository-style data layer and **adversarial tests**
-  (org B sees zero rows; cross-org record 404; cross-org image 404).
-  This is NOT database-level RLS (SQLite has none); a Postgres RLS migration
-  path is the documented production step.
-- Static demo tokens; production would use operator auth. No secrets in the
-  repository (`.env` gitignored).
+- SQLite tables include the organization identifier in their primary keys and queries filter by organization. This is application-level isolation, not database-enforced row-level security. The repository engineering rule requiring enabled and forced RLS is therefore not met by this SQLite MVP.
+- Organization tokens are static demo credentials. The frontend contains the demo choices; this is not production authentication or a secret boundary.
+- Images and the SQLite database are local runtime data. Production deployment would need controlled object storage, retention policy, backup, and tenant-enforced authorization.
+- The SHA-256 content hash detects changes relative to a known record serialization. It does not provide immutable storage, trusted timestamping, or proof of capture identity.
+- Gemini is invoked once per receiving record for its usable images; deterministic checks share those observations rather than making additional model calls.
+- Model observations can be incomplete or incorrect. `UNCERTAIN` is preserved for insufficient evidence and extraction failure; operators can override a completed decision with an audit entry.
 
-## Failure handling
-| Failure | Behavior |
-|---|---|
-| VLM 429/503 | Retry with backoff → fallback model chain → per-image error recorded; if all fail: fail-open PENDING_REVIEW |
-| Schema violation | Retry (model may self-correct) → per-image error; no fabricated claims |
-| Blurry/dark/tiny photo | Quality gate REJECTs before any VLM call; check-level UNCERTAIN/LOW_IMAGE_QUALITY |
-| Conflicting reliable counts | UNCERTAIN/CONFLICTING_EVIDENCE with both sides as evidence |
-| Sealed packaging | Components UNCERTAIN — never FAIL from invisibility |
-| Operator disagreement | Override recorded with full audit trail; original decision preserved |
+## Local service boundaries
 
-## Design decisions (and rejected alternatives)
-- Deterministic policy over LLM judgment — auditable, testable in
-  milliseconds, no prompt-drift in decisions.
-- SQLite over Postgres — zero-config reproducibility; RLS path documented.
-- One VLM call per image (0 per check) — organizer batching rule satisfied;
-  cached by content hash so re-inspection and eval re-runs cost nothing.
-- QR-vs-label conflict: Tier-1 barcode wins (documented behavior). Conflict
-  detection between tiers is future work; noted honestly.
+The API listens on port 8000 by default. Vite listens on port 5173 and proxies `/api` and `/health` to the API. Local SQLite and image paths are selected from `RCV_DATA_DIR`; extraction cache location can be set with `RCV_CACHE_DIR`. Gemini configuration uses `GEMINI_API_KEY`, `GEMINI_MODEL`, and optional `GEMINI_FALLBACK_MODELS` environment variables.

@@ -1,17 +1,26 @@
 import hashlib
 import io
 import json
+from dataclasses import dataclass
+from typing import Optional
 
 from PIL import Image, ImageOps
 
 from ..config import CFG
-from ..models import ImageObservation, ObsProvenance
+from ..models import ImageObservation, ImageObservationBatch, ObsProvenance
 from ..quality import assess_quality
 from .base import VisionProvider, VisionRequest
 from .barcode import decode_barcodes
 
-PROMPT_FILE = "observe_carton.v2.txt"
-PROMPT_VERSION = "observe_carton@v2"
+PROMPT_FILE = "observe_carton.batch.v1.txt"
+PROMPT_VERSION = "observe_carton_batch@v1"
+
+@dataclass
+class ExtractionResult:
+    image_id: str
+    provenance: Optional[ObsProvenance] = None
+    model_id: Optional[str] = None
+    error: Optional[str] = None
 
 def load_prompt() -> str:
     return (CFG.prompts_dir / PROMPT_FILE).read_text(encoding="utf-8")
@@ -26,48 +35,109 @@ def process_image(raw: bytes) -> bytes:
     return out.getvalue()
 
 class ExtractionService:
-    """Quality gate runs BEFORE the provider call: rejected photos never
-    consume VLM quota and never produce claims. The VLM cache sits above
-    the provider; quality is recomputed each call (deterministic, ~ms)."""
+    """Prepare every photo in a unit, then use at most one vision call."""
 
     def __init__(self, provider: VisionProvider):
         self.provider = provider
         CFG.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def observe(self, original_sha: str, image_id: str, raw: bytes):
-        processed = process_image(raw)
-        quality = assess_quality(processed)
-        barcodes = decode_barcodes(processed)
+    def observe_unit(self, images: list[tuple[str, str, bytes]]) -> list[ExtractionResult]:
+        results: list[Optional[ExtractionResult]] = [None] * len(images)
+        pending = []
 
-        if quality["verdict"] == "REJECTED":
-            return (ObsProvenance(image_id=image_id, sha256=original_sha,
-                                  observation=ImageObservation(),
-                                  barcodes=barcodes, quality=quality,
-                                  latency_ms=0, tokens=0),
-                    "quality-gate-rejected")
+        for position, (original_sha, image_id, raw) in enumerate(images):
+            try:
+                processed = process_image(raw)
+                quality = assess_quality(processed)
+                barcodes = decode_barcodes(processed)
+            except Exception as error:
+                results[position] = ExtractionResult(
+                    image_id=image_id,
+                    error=f"{type(error).__name__}: {str(error)[:160]}")
+                continue
 
-        key = hashlib.sha256(
-            f"{self.provider.name}|{CFG.gemini_model}|{PROMPT_VERSION}|"
-            f"{hashlib.sha256(processed).hexdigest()}".encode()
-        ).hexdigest()[:24]
-        cache_file = CFG.cache_dir / f"{key}.json"
+            if quality["verdict"] == "REJECTED":
+                results[position] = ExtractionResult(
+                    image_id=image_id,
+                    provenance=ObsProvenance(
+                        image_id=image_id, sha256=original_sha,
+                        observation=ImageObservation(), barcodes=barcodes,
+                        quality=quality))
+                continue
 
-        if cache_file.exists():
-            d = json.loads(cache_file.read_text())
-            return (ObsProvenance(image_id=image_id, sha256=original_sha,
-                                  observation=ImageObservation(**d["parsed"]),
-                                  latency_ms=0, tokens=d["tokens"],
-                                  barcodes=barcodes, quality=quality),
-                    d["model_id"])
+            key = hashlib.sha256(
+                f"{self.provider.name}|{CFG.gemini_model}|{PROMPT_VERSION}|"
+                f"{hashlib.sha256(processed).hexdigest()}".encode()
+            ).hexdigest()[:24]
+            cache_file = CFG.cache_dir / f"{key}.json"
+            cached_observation = None
+            cached_model_id = None
+            cached_tokens = 0
+            if cache_file.exists():
+                try:
+                    cached = json.loads(cache_file.read_text(encoding="utf-8"))
+                    cached_observation = ImageObservation(**cached["parsed"])
+                    cached_model_id = cached["model_id"]
+                    cached_tokens = cached.get("tokens", 0)
+                except Exception:
+                    cached_observation = None
 
-        resp = self.provider.analyze(VisionRequest(
-            image_bytes=processed, prompt_text=load_prompt(),
-            prompt_version=PROMPT_VERSION, schema_model=ImageObservation))
-        cache_file.write_text(json.dumps({
-            "parsed": resp.parsed.model_dump(),
-            "model_id": resp.model_id, "tokens": resp.tokens}))
-        return (ObsProvenance(image_id=image_id, sha256=original_sha,
-                              observation=resp.parsed,
-                              latency_ms=resp.latency_ms, tokens=resp.tokens,
-                              barcodes=barcodes, quality=quality),
-                resp.model_id)
+            if cached_observation is not None:
+                results[position] = ExtractionResult(
+                    image_id=image_id,
+                    provenance=ObsProvenance(
+                        image_id=image_id, sha256=original_sha,
+                        observation=cached_observation,
+                        barcodes=barcodes, quality=quality,
+                        tokens=cached_tokens),
+                    model_id=cached_model_id)
+                continue
+
+            pending.append({
+                "position": position, "sha": original_sha, "image_id": image_id,
+                "processed": processed, "barcodes": barcodes,
+                "quality": quality, "cache_file": cache_file,
+            })
+
+        if pending:
+            try:
+                CFG.cache_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+            try:
+                response = self.provider.analyze(VisionRequest(
+                    image_bytes=[item["processed"] for item in pending],
+                    prompt_text=load_prompt(), prompt_version=PROMPT_VERSION,
+                    schema_model=ImageObservationBatch))
+                by_index = {item.image_index: item.observation
+                            for item in response.parsed.images}
+                if (len(response.parsed.images) != len(pending)
+                    or set(by_index) != set(range(len(pending)))):
+                    raise ValueError("Batch response did not contain exactly one observation per image")
+
+                for batch_index, item in enumerate(pending):
+                    observation = by_index[batch_index]
+                    try:
+                        item["cache_file"].write_text(json.dumps({
+                            "parsed": observation.model_dump(),
+                            "model_id": response.model_id,
+                            "tokens": response.tokens if batch_index == 0 else 0,
+                        }), encoding="utf-8")
+                    except OSError:
+                        pass
+                    results[item["position"]] = ExtractionResult(
+                        image_id=item["image_id"],
+                        provenance=ObsProvenance(
+                            image_id=item["image_id"], sha256=item["sha"],
+                            observation=observation, barcodes=item["barcodes"],
+                            quality=item["quality"],
+                            latency_ms=response.latency_ms if batch_index == 0 else 0,
+                            tokens=response.tokens if batch_index == 0 else 0),
+                        model_id=response.model_id)
+            except Exception as error:
+                detail = f"{type(error).__name__}: {str(error)[:160]}"
+                for item in pending:
+                    results[item["position"]] = ExtractionResult(
+                        image_id=item["image_id"], error=detail)
+
+        return [result for result in results if result is not None]

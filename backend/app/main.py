@@ -1,11 +1,12 @@
 import hashlib
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .auth import require_org
@@ -24,8 +25,17 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
                    allow_methods=["*"], allow_headers=["*"])
 db.init_db()
 
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if (FRONTEND_DIST / "index.html").is_file():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 MEDIA = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+if (FRONTEND_DIST / "index.html").is_file():
+    @app.get("/")
+    def serve_frontend():
+        return FileResponse(FRONTEND_DIST / "index.html")
 
 @app.get("/health")
 def health():
@@ -102,29 +112,33 @@ def inspect(rid: str, org: str = Depends(require_org)):
         raise HTTPException(400, "No images uploaded for this record")
 
     svc = ExtractionService(GeminiProvider())
-
-    def do(im):
-        idx, sha, _ = im
-        ext = db.run("SELECT ext FROM images WHERE org_id=? AND sha256=?",
-                     (org, sha), fetch=True)[0][0]
-        raw = (CFG.image_dir / f"{sha}.{ext}").read_bytes()
-        return svc.observe(sha, f"img_{idx+1}", raw)
-
-    image_entries, observations = [], []
+    image_entries, observations, extraction_inputs = [], [], []
     model_id = "unknown"
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futs = {im[0]: ex.submit(do, im) for im in imgs}
-        for im in imgs:
-            idx, sha, fname = im
-            entry = {"image_id": f"img_{idx+1}", "sha256": sha, "filename": fname}
-            try:
-                prov, mid = futs[idx].result()
-                observations.append(prov)
-                if (prov.quality or {}).get("verdict") != "REJECTED":
-                    model_id = mid
-            except Exception as e:
-                entry["extraction_error"] = f"{type(e).__name__}: {str(e)[:160]}"
-            image_entries.append(entry)
+    entries_by_id = {}
+    for idx, sha, filename in imgs:
+        image_id = f"img_{idx+1}"
+        entry = {"image_id": image_id, "sha256": sha, "filename": filename}
+        image_entries.append(entry)
+        entries_by_id[image_id] = entry
+        try:
+            ext = db.run("SELECT ext FROM images WHERE org_id=? AND sha256=?",
+                         (org, sha), fetch=True)[0][0]
+            raw = (CFG.image_dir / f"{sha}.{ext}").read_bytes()
+            extraction_inputs.append((sha, image_id, raw))
+        except Exception as error:
+            entry["extraction_error"] = f"{type(error).__name__}: {str(error)[:160]}"
+
+    for result in svc.observe_unit(extraction_inputs):
+        entry = entries_by_id[result.image_id]
+        if result.error:
+            entry["extraction_error"] = result.error
+            continue
+        prov = result.provenance
+        if prov is None:
+            continue
+        observations.append(prov)
+        if (prov.quality or {}).get("verdict") != "REJECTED":
+            model_id = result.model_id or model_id
 
     for e in image_entries:
         prov = next((p for p in observations if p.image_id == e["image_id"]), None)

@@ -54,6 +54,13 @@ class ImageObservation(BaseModel):
     quality_issues: List[str] = []
     notes: Optional[str] = None
 
+class IndexedImageObservation(BaseModel):
+    image_index: int = Field(ge=0)
+    observation: ImageObservation
+
+class ImageObservationBatch(BaseModel):
+    images: List[IndexedImageObservation]
+
 class ObsProvenance(BaseModel):
     image_id: str
     sha256: str

@@ -18,17 +18,20 @@ class GeminiProvider(VisionProvider):
     name = "gemini"
 
     def __init__(self):
-        if not CFG.gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY missing in .env")
-        self.client = genai.Client(api_key=CFG.gemini_api_key)
+        self.client = (genai.Client(api_key=CFG.gemini_api_key)
+                       if CFG.gemini_api_key else None)
         self.models = [CFG.gemini_model] + CFG.gemini_fallback_models
 
     def _call(self, model: str, req: VisionRequest) -> VisionResponse:
-        img = Image.open(io.BytesIO(req.image_bytes))
+        images = [Image.open(io.BytesIO(raw)) for raw in req.image_bytes]
+        contents = []
+        for index, image in enumerate(images):
+            contents.extend([f"Image index {index}", image])
+        contents.append(req.prompt_text)
         t0 = time.time()
         resp = self.client.models.generate_content(
             model=model,
-            contents=[img, req.prompt_text],
+            contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=req.schema_model,
@@ -42,6 +45,8 @@ class GeminiProvider(VisionProvider):
                               latency_ms=int((time.time() - t0) * 1000), tokens=tokens)
 
     def analyze(self, req: VisionRequest) -> VisionResponse:
+        if self.client is None:
+            raise RuntimeError("GEMINI_API_KEY missing in .env")
         last = None
         for model in self.models:
             for attempt in range(2):            # 2 tries per model, 2s apart

@@ -23,6 +23,10 @@ verify_out*.txt
 verify*.py
 inspect_result.txt
 po.json
+bravo_*.json
+override_body.json
+override_test.json
+frontend/override_test.json
 *.log
 
 # operating system files
