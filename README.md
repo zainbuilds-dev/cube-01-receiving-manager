@@ -51,7 +51,7 @@ npm --prefix frontend run build
 
 ### Render deployment
 
-The root `render.yaml` Blueprint deploys the API and built frontend together as one free Docker web service. Connect this GitHub repository to Render and deploy the Blueprint; set `GEMINI_API_KEY` in the service environment to enable image inspection. The free service uses ephemeral storage, so records and uploaded images can be lost when the service restarts or redeploys. The included organization tokens are demo credentials, not production authentication.
+The root `render.yaml` Blueprint deploys the API and built frontend together as one free Docker web service: https://receiving-manager-fullstack.onrender.com. `GEMINI_API_KEY` is currently unset in Render; add it in the service environment to enable image inspection. The free service uses ephemeral storage, so records and uploaded images can be lost when the service restarts or redeploys. The included organization tokens are demo credentials, not production authentication.
 
 ### Scope and limitations
 
@@ -62,7 +62,7 @@ The root `render.yaml` Blueprint deploys the API and built frontend together as 
 - Image-quality thresholds are provisional heuristics and need validation on real receiving photos.
 - Missing API credentials or model failures preserve the capture and return `PENDING_REVIEW`/`UNCERTAIN`; image inspection itself requires a valid Gemini key.
 - This fork currently has no held-out labeled image set or measured per-check performance; unit tests are not accuracy results.
-- No public deployment or demo-video URL is provided in this repository.
+- The public demo is https://receiving-manager-fullstack.onrender.com; no demo-video URL is provided.
 - The mandatory LinkedIn post and its URL have not been provided; publish the post, tag CodeQuesters and Sydon.AI, then include its URL in the official form.
 
 These limitations mean the current implementation does not yet satisfy all engineering and submission requirements in [`RULES.md`](RULES.md) and the participant handbook.
@@ -73,7 +73,7 @@ These limitations mean the current implementation does not yet satisfy all engin
 - README and architecture: [`README.md`](README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Evaluation report: [`EVALUATION.md`](EVALUATION.md), currently without measured results.
 - Demo video: not yet recorded or linked.
-- Deployment URL: none currently; provide one if the final submission is deployed/applicable.
+- Deployment URL: https://receiving-manager-fullstack.onrender.com.
 - LinkedIn post URL: mandatory, but not available in this repository; include it in the official form after publishing and tagging CodeQuesters and Sydon.AI.
 - Final submission: complete the official form before its deadline; this repository folder is not the submission form.
 
