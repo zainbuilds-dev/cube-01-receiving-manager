@@ -6,4 +6,6 @@ pillow>=10.0
 pydantic>=2.6
 pytest>=8.0
 httpx>=0.27
-pyzbar>=0.1.9
+opencv-python>=4.9
+numpy>=1.26
+qrcode>=7.4
