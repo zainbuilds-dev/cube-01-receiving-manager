@@ -1,11 +1,11 @@
 Evaluation — Receiving Manager
 What was measured
 1. Automated test suite (deterministic layers)
-[CONFIRM: run venv\Scripts\python.exe -m pytest backend\tests -q and put thereal number here — as of the final commit: 82 tests, all passing.]
+88 tests, all passing (verified with `venv\Scripts\python.exe -m pytest backend\tests -q`).
 
 Coverage: per-check logic for all 10 checks (including barcode tier, qualitygate classification, quantity conflicts, sealed-packaging behavior), decisionengine (FAIL > UNCERTAIN > PASS precedence, NOT_APPLICABLE exclusion, advisoryhandling), evidence-record hashing, org isolation (adversarial: cross-orglist/record/image access), override audit trail, and the offline all-photos-rejected → PENDING_REVIEW API path. These tests run with no network and noAPI calls — the deterministic layers are fully regression-tested.
 
-2. Observed latency (real runs, free-tier Gemini)
+2. Historical observed latency (Gemini; not measured on the current Groq provider)
 gemini-3-flash-preview: ~9.5 s per image (one observed run)
 gemini-3.1-flash-lite (fallback): ~4.7 s per image (one observed run)
 Re-inspection of identical images: ~0 s (content-hash cache)Small sample; indicative only.
@@ -17,7 +17,7 @@ What was NOT measured (honest limitations)
 No blind held-out evaluation on 50 unseen units was completed withinthe build window. Per-check accuracy, false-positive/false-negative rates,UNCERTAIN rate and abstention quality are therefore not claimed.
 VLM counting accuracy was not systematically benchmarked.
 Cohen's kappa between labelers was not computed (labeling round not run).
-Single provider (Gemini free tier); cross-provider comparison not done.
+Cross-provider comparison not done. The latency observations above are historical Gemini runs; Groq has not been benchmarked.
 Failure modes observed during the build
 Failure	Observed	Mitigation in system
 Model 503 under load	Yes (gemini-3-flash-preview, gemini-3.8-flash)	Fallback model chain; fail-open PENDING_REVIEW

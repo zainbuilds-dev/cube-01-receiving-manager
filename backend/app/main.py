@@ -14,7 +14,7 @@ from .checks import CHECKS
 from .config import CFG
 from .decision.engine import decide, load_policy
 from .evidence import build_evidence_record
-from .extraction.gemini import GeminiProvider
+from .extraction.groq import GroqProvider
 from .extraction.service import PROMPT_VERSION, ExtractionService
 from .models import POCreate, CheckContext, CheckResult, OverrideRequest, utcnow
 from .storage import store_image
@@ -39,7 +39,7 @@ if (FRONTEND_DIST / "index.html").is_file():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "agent": "receiving-manager", "model": CFG.gemini_model,
+    return {"status": "ok", "agent": "receiving-manager", "model": CFG.groq_model,
             "version": CFG.agent_version}
 
 @app.post("/api/records")
@@ -111,7 +111,7 @@ def inspect(rid: str, org: str = Depends(require_org)):
     if not imgs:
         raise HTTPException(400, "No images uploaded for this record")
 
-    svc = ExtractionService(GeminiProvider())
+    svc = ExtractionService(GroqProvider())
     image_entries, observations, extraction_inputs = [], [], []
     model_id = "unknown"
     entries_by_id = {}
@@ -148,7 +148,7 @@ def inspect(rid: str, org: str = Depends(require_org)):
     usable = [p for p in observations if (p.quality or {}).get("verdict") != "REJECTED"]
 
     if usable:
-        model_version = f"gemini:{model_id}|prompt:{PROMPT_VERSION}"
+        model_version = f"groq:{model_id}|prompt:{PROMPT_VERSION}"
         ctx = CheckContext(po=po.line_items[0], observations=usable,
                            model_version=model_version)
         results = [fn(ctx) for fn in CHECKS.values()]

@@ -1,13 +1,15 @@
-"""Find a vision model that works RIGHT NOW. Usage:
+"""Probe configured Groq vision models. Usage:
    venv\\Scripts\\python.exe scripts\\model_probe.py
 """
-import sys, time
+import io
+import sys
+import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.config import CFG
-from google import genai
-from google.genai import types
+from app.extraction.base import VisionRequest
+from app.extraction.groq import GroqProvider
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel
 
@@ -15,10 +17,8 @@ class Obs(BaseModel):
     dominant_color: str
     visible_text: str | None
 
-CANDIDATES = [CFG.gemini_model,
-    "gemini-flash-latest", "gemini-flash-lite-latest",
-    "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash",
-    "gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash-lite"]
+CANDIDATES = [CFG.groq_model,
+    "meta-llama/llama-4-maverick-17b-128e-instruct"]
 
 img = Image.new("RGB", (640, 480), (230, 230, 230))
 d = ImageDraw.Draw(img)
@@ -27,28 +27,27 @@ try: font = ImageFont.load_default(size=64)
 except TypeError: font = ImageFont.load_default()
 d.text((280, 200), "24", fill=(255, 255, 255), font=font)
 
-client = genai.Client(api_key=CFG.gemini_api_key)
-print("Probing candidates (SDK retries internally on 503 — may take a few min)...\n")
-winners = []
+image_bytes = io.BytesIO()
+img.save(image_bytes, format="JPEG")
+request = VisionRequest(
+    image_bytes=[image_bytes.getvalue()],
+    prompt_text="Report the dominant color and any visible text.",
+    prompt_version="model-probe",
+    schema_model=Obs,
+)
+print("Probing configured Groq models...\\n")
 for m in CANDIDATES:
     try:
         t0 = time.time()
-        r = client.models.generate_content(
-            model=m, contents=[img, "Report the dominant color and any visible text."],
-            config=types.GenerateContentConfig(response_mime_type="application/json",
-                                               response_schema=Obs))
-        p = Obs.model_validate_json(r.text)
+        CFG.groq_model = m
+        CFG.groq_fallback_models = []
+        r = GroqProvider().analyze(request)
+        p = r.parsed
         ok = "blue" in p.dominant_color.lower() and p.visible_text and "24" in p.visible_text
         print(f"  {'OK  ' if ok else 'WEAK'} {m}  ({time.time()-t0:.1f}s)  "
               f"color={p.dominant_color!r} text={p.visible_text!r}")
-        if ok: winners.append(m)
     except Exception as e:
         print(f"  FAIL {m}  {type(e).__name__}: {str(e)[:90]}")
         time.sleep(1)
 
-print()
-if winners:
-    print(f"PRIMARY -> GEMINI_MODEL={winners[0]}")
-    print(f"FALLBACKS -> GEMINI_FALLBACK_MODELS={','.join(winners[1:3])}")
-else:
-    print("ALL FAILED — paste this output back.")
+print("\\nSet GROQ_MODEL and GROQ_FALLBACK_MODELS in the environment to select working models.")

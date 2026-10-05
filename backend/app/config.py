@@ -19,10 +19,11 @@ _load_env()
 DATA_DIR = Path(os.environ.get("RCV_DATA_DIR", str(ROOT_DIR / "data")))
 
 class Config:
-    gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
-    gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
-    gemini_fallback_models: list = [m.strip() for m in os.environ.get(
-        "GEMINI_FALLBACK_MODELS", "").split(",") if m.strip()]
+    groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
+    groq_model: str = os.environ.get(
+        "GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    groq_fallback_models: list = [m.strip() for m in os.environ.get(
+        "GROQ_FALLBACK_MODELS", "").split(",") if m.strip()]
     db_path: Path = DATA_DIR / "app.db"
     image_dir: Path = DATA_DIR / "images"
     cache_dir: Path = Path(os.environ.get("RCV_CACHE_DIR", str(ROOT_DIR / ".cache"))) / "extraction"
