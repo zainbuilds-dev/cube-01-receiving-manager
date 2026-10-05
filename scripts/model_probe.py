@@ -17,8 +17,7 @@ class Obs(BaseModel):
     dominant_color: str
     visible_text: str | None
 
-CANDIDATES = [CFG.groq_model,
-    "meta-llama/llama-4-maverick-17b-128e-instruct"]
+CANDIDATES = [CFG.groq_model]
 
 img = Image.new("RGB", (640, 480), (230, 230, 230))
 d = ImageDraw.Draw(img)

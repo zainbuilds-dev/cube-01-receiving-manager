@@ -9,7 +9,7 @@ The application is a local-first MVP with a React/Vite operator interface and a 
 1. The frontend submits purchase-order details to `POST /api/records` with a bearer token identifying one of the demo organizations.
 2. Images are uploaded to `POST /api/records/{id}/images`. The backend validates supported image content and size, calculates SHA-256, and stores files locally. Organization-scoped database rows link images to records.
 3. `POST /api/records/{id}/inspect` loads the images. Image quality is assessed deterministically, barcodes are decoded locally when available, and usable images are sent to the configured Groq vision model. Extraction receives the image and observation prompt, not the purchase-order expectation.
-4. All usable, uncached images for the receiving record are sent together in one indexed Groq request, with configured model retries/fallbacks. The response must contain exactly one observation per input image index. Image errors are retained in the record. If no usable observations are available, all checks return `UNCERTAIN` and the record is held for review.
+4. All usable, uncached images for the receiving record are sent in indexed Groq requests of up to three images each, with configured model retries/fallbacks. The provider combines results and the response must contain exactly one observation per input image index. Image errors are retained in the record. If no usable observations are available, all checks return `UNCERTAIN` and the record is held for review.
 5. Ten check modules evaluate identity, colour, variant, quantity, carton count, carton damage, unit damage, units per carton, missing components, and other quality. The decision engine is deterministic: configured critical failures produce `FAIL`, unresolved critical checks produce `UNCERTAIN`, and all critical checks passing produces `PASS`.
 6. The evidence builder stores the subject, image metadata, checks, receiving summary, outcome, inspection status, overrides, and a content hash. The frontend displays records, check evidence, quality information, and supports human overrides.
 
@@ -33,7 +33,7 @@ The application is a local-first MVP with a React/Vite operator interface and a 
 - Organization tokens are static demo credentials. The frontend contains the demo choices; this is not production authentication or a secret boundary.
 - Images and the SQLite database are local runtime data. Production deployment would need controlled object storage, retention policy, backup, and tenant-enforced authorization.
 - The SHA-256 content hash detects changes relative to a known record serialization. It does not provide immutable storage, trusted timestamping, or proof of capture identity.
-- Groq is invoked once per receiving record for its usable images; deterministic checks share those observations rather than making additional model calls.
+- Groq is invoked in one or more requests per receiving record for its usable images; deterministic checks share those observations rather than making additional model calls.
 - Model observations can be incomplete or incorrect. `UNCERTAIN` is preserved for insufficient evidence and extraction failure; operators can override a completed decision with an audit entry.
 
 ## Local service boundaries

@@ -1,7 +1,7 @@
 Evaluation — Receiving Manager
 What was measured
 1. Automated test suite (deterministic layers)
-88 tests, all passing (verified with `venv\Scripts\python.exe -m pytest backend\tests -q`).
+89 tests, all passing (verified with `venv\Scripts\python.exe -m pytest backend\tests -q`).
 
 Coverage: per-check logic for all 10 checks (including barcode tier, qualitygate classification, quantity conflicts, sealed-packaging behavior), decisionengine (FAIL > UNCERTAIN > PASS precedence, NOT_APPLICABLE exclusion, advisoryhandling), evidence-record hashing, org isolation (adversarial: cross-orglist/record/image access), override audit trail, and the offline all-photos-rejected → PENDING_REVIEW API path. These tests run with no network and noAPI calls — the deterministic layers are fully regression-tested.
 

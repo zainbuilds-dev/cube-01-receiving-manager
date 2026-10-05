@@ -1,6 +1,6 @@
 import base64
 import io
-import json
+import json as json_module
 
 from fastapi.testclient import TestClient
 
@@ -116,7 +116,7 @@ def test_missing_api_key_is_captured_as_an_extraction_error(monkeypatch, tmp_pat
 def test_groq_provider_sends_images_and_validates_json(monkeypatch):
     monkeypatch.setattr(extraction_service.CFG, "groq_api_key", "test-key")
     provider = GroqProvider()
-    response_text = json.dumps({"images": [{
+    response_text = json_module.dumps({"images": [{
         "image_index": 0,
         "observation": {"visible_sku_text": "SKU-0"},
     }]})
@@ -155,6 +155,52 @@ def test_groq_provider_sends_images_and_validates_json(monkeypatch):
     assert result.parsed.images[0].observation.visible_sku_text == "SKU-0"
     assert result.model_id == "test-groq-model"
     assert result.tokens == 23
+
+
+def test_groq_provider_chunks_large_batches_and_restores_image_indices(monkeypatch):
+    monkeypatch.setattr(extraction_service.CFG, "groq_api_key", "test-key")
+    provider = GroqProvider()
+    request_sizes = []
+    total_seen = 0
+
+    class FakeResponse:
+        def __init__(self, response_json):
+            self.response_json = response_json
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.response_json
+
+    def fake_post(url, headers, timeout, json):
+        nonlocal total_seen
+        content = json["messages"][0]["content"]
+        count = sum(part["type"] == "image_url" for part in content)
+        request_sizes.append(count)
+        first_index = total_seen
+        total_seen += count
+        return FakeResponse({
+            "model": "test-groq-model",
+            "choices": [{"message": {"content": json_module.dumps({
+                "images": [{
+                    "image_index": index,
+                    "observation": {"visible_sku_text": f"SKU-{first_index + index}"},
+                } for index in range(count)]
+            })}}],
+            "usage": {"total_tokens": 10},
+        })
+
+    monkeypatch.setattr(groq_module.httpx, "post", fake_post)
+    response = provider._call_batch("test-groq-model", VisionRequest(
+        image_bytes=[b"image"] * 7, prompt_text="Observe images",
+        prompt_version="batch-v1", schema_model=ImageObservationBatch))
+
+    assert request_sizes == [3, 3, 1]
+    assert [item.image_index for item in response.parsed.images] == list(range(7))
+    assert [item.observation.visible_sku_text for item in response.parsed.images] == [
+        f"SKU-{index}" for index in range(7)]
+    assert response.tokens == 30
 
 
 def test_failed_batch_is_saved_for_human_review(monkeypatch, tmp_path):

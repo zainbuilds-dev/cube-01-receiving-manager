@@ -6,10 +6,12 @@ import httpx
 from pydantic import ValidationError
 
 from ..config import CFG
+from ..models import ImageObservationBatch
 from .base import VisionProvider, VisionRequest, VisionResponse
 
 RETRYABLE_STATUS = ("429", "500", "502", "503", "504")
 API_URL = "https://api.groq.com/openai/v1"
+MAX_IMAGES_PER_REQUEST = 3
 
 
 class GroqProvider(VisionProvider):
@@ -55,6 +57,40 @@ class GroqProvider(VisionProvider):
             tokens=int(usage.get("total_tokens", 0) or 0),
         )
 
+    def _call_batch(self, model: str, req: VisionRequest) -> VisionResponse:
+        if len(req.image_bytes) <= MAX_IMAGES_PER_REQUEST:
+            return self._call(model, req)
+        if req.schema_model is not ImageObservationBatch:
+            raise ValueError("Requests over three images require ImageObservationBatch")
+
+        responses = []
+        combined = []
+        for offset in range(0, len(req.image_bytes), MAX_IMAGES_PER_REQUEST):
+            chunk = VisionRequest(
+                image_bytes=req.image_bytes[offset:offset + MAX_IMAGES_PER_REQUEST],
+                prompt_text=req.prompt_text,
+                prompt_version=req.prompt_version,
+                schema_model=req.schema_model,
+            )
+            response = self._call(model, chunk)
+            responses.append(response)
+            combined.extend(
+                item.model_copy(update={"image_index": item.image_index + offset})
+                for item in response.parsed.images
+            )
+
+        parsed = req.schema_model.model_validate({
+            "images": [item.model_dump() for item in combined],
+        })
+        return VisionResponse(
+            parsed=parsed,
+            raw_text="\n".join(response.raw_text for response in responses),
+            model_id=responses[-1].model_id,
+            prompt_version=req.prompt_version,
+            latency_ms=sum(response.latency_ms for response in responses),
+            tokens=sum(response.tokens for response in responses),
+        )
+
     def analyze(self, req: VisionRequest) -> VisionResponse:
         if not self.api_key:
             raise RuntimeError("GROQ_API_KEY missing in .env")
@@ -62,7 +98,7 @@ class GroqProvider(VisionProvider):
         for model in self.models:
             for _ in range(2):
                 try:
-                    return self._call(model, req)
+                    return self._call_batch(model, req)
                 except ValidationError as error:
                     last = error
                 except Exception as error:

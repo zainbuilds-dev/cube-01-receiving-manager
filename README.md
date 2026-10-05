@@ -57,7 +57,7 @@ The root `render.yaml` Blueprint deploys the API and built frontend together as 
 
 - The API currently supports exactly one purchase-order line per record.
 - The database is local SQLite and tenant access is enforced by application-level organization filters, not database row-level security.
-- Usable photos for one receiving record are sent in one indexed Groq batch; each deterministic check is then evaluated from those observations.
+- Usable photos for one receiving record are sent in indexed Groq batches of up to three images; each deterministic check is then evaluated from those observations.
 - Organization tokens are static demo credentials and are not production authentication.
 - Image-quality thresholds are provisional heuristics and need validation on real receiving photos.
 - Missing API credentials or model failures preserve the capture and return `PENDING_REVIEW`/`UNCERTAIN`; image inspection itself requires a valid Groq key.
