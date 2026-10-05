@@ -20,7 +20,7 @@ The implementation is not production-ready and has not been accuracy-evaluated. 
 
 ### Local setup
 
-Prerequisites: Python 3.11 or newer, Node.js supported by Vite 8, and a Groq API key for image inspection.
+Prerequisites: Python 3.11 or newer, Node.js supported by Vite 8, and a Gemini API key for image inspection.
 
 From the repository root in PowerShell:
 
@@ -31,7 +31,7 @@ npm --prefix frontend install
 Copy-Item .env.example .env
 ```
 
-Set `GROQ_API_KEY` in `.env`. The default model is configured in `backend/app/config.py`; optionally set `GROQ_MODEL` and `GROQ_FALLBACK_MODELS` there as environment values. Do not commit `.env` or credentials.
+Set `GEMINI_API_KEY` in `.env`. The default model is configured in `backend/app/config.py`; optionally set `GEMINI_MODEL` and `GEMINI_FALLBACK_MODELS` there as environment values. Do not commit `.env` or credentials.
 
 Start both the API and frontend from the `frontend` directory:
 
@@ -40,7 +40,7 @@ Set-Location frontend
 npm run dev
 ```
 
-The dev command starts the API on port 8000 if it is not already healthy, then starts Vite and prints its URL (normally `http://localhost:5173`). The frontend proxies `/api` and `/health` to the API. Stop the command with Ctrl+C; it stops only the API process it started. Image inspection requires a valid Groq key; intake and record review can be exercised without claiming model accuracy.
+The dev command starts the API on port 8000 if it is not already healthy, then starts Vite and prints its URL (normally `http://localhost:5173`). The frontend proxies `/api` and `/health` to the API. Stop the command with Ctrl+C; it stops only the API process it started. Image inspection requires a valid Gemini key; intake and record review can be exercised without claiming model accuracy.
 
 Run checks from the repository root:
 
@@ -51,16 +51,16 @@ npm --prefix frontend run build
 
 ### Render deployment
 
-The root `render.yaml` Blueprint deploys the API and built frontend together as one free Docker web service: https://receiving-manager-fullstack.onrender.com. `GROQ_API_KEY` must be set in the service environment to enable image inspection. The free service uses ephemeral storage, so records and uploaded images can be lost when the service restarts or redeploys. The included organization tokens are demo credentials, not production authentication.
+The root `render.yaml` Blueprint deploys the API and built frontend together as one free Docker web service: https://receiving-manager-fullstack.onrender.com. `GEMINI_API_KEY` is currently unset in Render; add it in the service environment to enable image inspection. The free service uses ephemeral storage, so records and uploaded images can be lost when the service restarts or redeploys. The included organization tokens are demo credentials, not production authentication.
 
 ### Scope and limitations
 
 - The API currently supports exactly one purchase-order line per record.
 - The database is local SQLite and tenant access is enforced by application-level organization filters, not database row-level security.
-- Usable photos for one receiving record are sent in indexed Groq batches of up to three images; each deterministic check is then evaluated from those observations.
+- Usable photos for one receiving record are sent in one indexed Gemini batch; each deterministic check is then evaluated from those observations.
 - Organization tokens are static demo credentials and are not production authentication.
 - Image-quality thresholds are provisional heuristics and need validation on real receiving photos.
-- Missing API credentials or model failures preserve the capture and return `PENDING_REVIEW`/`UNCERTAIN`; image inspection itself requires a valid Groq key.
+- Missing API credentials or model failures preserve the capture and return `PENDING_REVIEW`/`UNCERTAIN`; image inspection itself requires a valid Gemini key.
 - This fork currently has no held-out labeled image set or measured per-check performance; unit tests are not accuracy results.
 - The public demo is https://receiving-manager-fullstack.onrender.com; no demo-video URL is provided.
 - The mandatory LinkedIn post and its URL have not been provided; publish the post, tag CodeQuesters and Sydon.AI, then include its URL in the official form.

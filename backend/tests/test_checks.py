@@ -21,7 +21,7 @@ def ctx(obs_list, **po_kw):
     po = POLineItem(**kw)
     provs = [ObsProvenance(image_id=f"img_{i+1}", sha256=f"sha{i}", observation=o)
              for i, o in enumerate(obs_list)]
-    return CheckContext(po=po, observations=provs, model_version="groq:test|prompt:v2")
+    return CheckContext(po=po, observations=provs, model_version="gemini:test|prompt:v2")
 
 def ctx_barcodes(codes, **po_kw):
     kw = dict(sku="SKU-BOTTLE-750", qty_ordered=24)
@@ -29,7 +29,7 @@ def ctx_barcodes(codes, **po_kw):
     po = POLineItem(**kw)
     provs = [ObsProvenance(image_id="img_1", sha256="sha0", observation=obs(),
                            barcodes=codes)]
-    return CheckContext(po=po, observations=provs, model_version="groq:test|prompt:v2")
+    return CheckContext(po=po, observations=provs, model_version="gemini:test|prompt:v2")
 
 def dmg(target="carton", dtype="crushing", conf=0.9):
     return DamageObs(damage_type=dtype, target=target, location="upper corner",

@@ -66,7 +66,7 @@ class ExtractionService:
                 continue
 
             key = hashlib.sha256(
-                f"{self.provider.name}|{CFG.groq_model}|{PROMPT_VERSION}|"
+                f"{self.provider.name}|{CFG.gemini_model}|{PROMPT_VERSION}|"
                 f"{hashlib.sha256(processed).hexdigest()}".encode()
             ).hexdigest()[:24]
             cache_file = CFG.cache_dir / f"{key}.json"
